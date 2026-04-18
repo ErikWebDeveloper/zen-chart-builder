@@ -102,6 +102,7 @@ export function TaskDetailPanel({
             </label>
             <input
               type={inputType}
+              step={isHour ? 900 : undefined}
               value={task.end}
               min={task.start}
               onChange={(e) => onUpdate(task.id, { end: e.target.value })}
