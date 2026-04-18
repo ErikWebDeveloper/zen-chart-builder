@@ -1,14 +1,14 @@
 import { useState } from "react";
-import type { Project } from "@/lib/gantt-types";
+import type { Project, ProjectScale } from "@/lib/gantt-types";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, FolderKanban, Pencil, Check, X } from "lucide-react";
+import { Plus, Trash2, FolderKanban, Pencil, Check, X, Clock, Calendar } from "lucide-react";
 
 interface Props {
   projects: Project[];
   activeId: string | null;
   taskCounts: Record<string, number>;
   onSelect: (id: string) => void;
-  onAdd: (name: string) => void;
+  onAdd: (name: string, scale: ProjectScale) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
 }
@@ -18,6 +18,7 @@ export function ProjectSidebar({
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newScale, setNewScale] = useState<ProjectScale>("day");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
@@ -42,30 +43,59 @@ export function ProjectSidebar({
             onSubmit={(e) => {
               e.preventDefault();
               if (newName.trim()) {
-                onAdd(newName.trim());
+                onAdd(newName.trim(), newScale);
                 setNewName("");
+                setNewScale("day");
                 setAdding(false);
               }
             }}
-            className="mb-1 flex items-center gap-1 rounded-lg border border-border bg-background p-1.5"
+            className="mb-2 rounded-lg border border-border bg-background p-2"
           >
             <input
               autoFocus
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Nombre del proyecto"
-              className="flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
+              className="w-full bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground"
             />
-            <button type="submit" className="rounded p-1 text-primary hover:bg-accent">
-              <Check className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => { setAdding(false); setNewName(""); }}
-              className="rounded p-1 text-muted-foreground hover:bg-accent"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <div className="mt-2 grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                onClick={() => setNewScale("day")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition",
+                  newScale === "day"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-accent",
+                )}
+              >
+                <Calendar className="h-3.5 w-3.5" /> Días
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewScale("hour")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition",
+                  newScale === "hour"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-accent",
+                )}
+              >
+                <Clock className="h-3.5 w-3.5" /> Horas
+              </button>
+            </div>
+            <div className="mt-2 flex items-center justify-end gap-1">
+              <button
+                type="button"
+                onClick={() => { setAdding(false); setNewName(""); }}
+                className="rounded p-1 text-muted-foreground hover:bg-accent"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <button type="submit" className="rounded p-1 text-primary hover:bg-accent">
+                <Check className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </form>
         )}
 
@@ -101,9 +131,12 @@ export function ProjectSidebar({
               ) : (
                 <button
                   onClick={() => onSelect(p.id)}
-                  className="flex-1 truncate text-left text-sm font-medium"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-medium"
                 >
-                  {p.name}
+                  <span className="truncate">{p.name}</span>
+                  {p.scale === "hour" && (
+                    <Clock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Por horas" />
+                  )}
                 </button>
               )}
               <span className="text-[11px] tabular-nums text-muted-foreground">

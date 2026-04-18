@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import type { GanttState, Project, Task, Subtask, TaskColor } from "@/lib/gantt-types";
-import { toISO, addDays } from "@/lib/date-utils";
+import type { GanttState, Project, ProjectScale, Task, Subtask, TaskColor } from "@/lib/gantt-types";
+import { toISO, toISOHour, addDays, addHours, startOfHour } from "@/lib/date-utils";
 
-const STORAGE_KEY = "gantt-state-v1";
+const STORAGE_KEY = "gantt-state-v2";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -10,8 +10,10 @@ function uid() {
 
 function seed(): GanttState {
   const today = new Date();
-  const p1: Project = { id: uid(), name: "Lanzamiento Web", createdAt: new Date().toISOString() };
-  const p2: Project = { id: uid(), name: "Campaña Q2", createdAt: new Date().toISOString() };
+  const p1: Project = { id: uid(), name: "Lanzamiento Web", createdAt: new Date().toISOString(), scale: "day" };
+  const p2: Project = { id: uid(), name: "Campaña Q2", createdAt: new Date().toISOString(), scale: "day" };
+  const p3: Project = { id: uid(), name: "Evento (por horas)", createdAt: new Date().toISOString(), scale: "hour" };
+  const baseHour = startOfHour(today);
   const tasks: Task[] = [
     {
       id: uid(), projectId: p1.id, title: "Investigación de usuarios",
@@ -33,27 +35,41 @@ function seed(): GanttState {
       color: "emerald", subtasks: [],
     },
     {
-      id: uid(), projectId: p1.id, title: "QA & Lanzamiento",
-      start: toISO(addDays(today, 18)), end: toISO(addDays(today, 24)),
-      color: "amber", subtasks: [],
-    },
-    {
       id: uid(), projectId: p2.id, title: "Estrategia de contenido",
       start: toISO(addDays(today, 0)), end: toISO(addDays(today, 6)),
       color: "pink", subtasks: [],
     },
+    {
+      id: uid(), projectId: p3.id, title: "Montaje",
+      start: toISOHour(baseHour), end: toISOHour(addHours(baseHour, 3)),
+      color: "amber", subtasks: [],
+    },
+    {
+      id: uid(), projectId: p3.id, title: "Apertura puertas",
+      start: toISOHour(addHours(baseHour, 4)), end: toISOHour(addHours(baseHour, 6)),
+      color: "cyan", subtasks: [],
+    },
   ];
-  return { projects: [p1, p2], tasks, activeProjectId: p1.id };
+  return { projects: [p1, p2, p3], tasks, activeProjectId: p1.id };
+}
+
+function migrate(parsed: any): GanttState {
+  // ensure scale exists on legacy projects
+  const projects: Project[] = (parsed.projects ?? []).map((p: any) => ({
+    ...p,
+    scale: (p.scale as ProjectScale) ?? "day",
+  }));
+  return { projects, tasks: parsed.tasks ?? [], activeProjectId: parsed.activeProjectId ?? null };
 }
 
 function load(): GanttState {
   if (typeof window === "undefined") return seed();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem("gantt-state-v1");
     if (!raw) return seed();
-    const parsed = JSON.parse(raw) as GanttState;
+    const parsed = JSON.parse(raw);
     if (!parsed.projects?.length) return seed();
-    return parsed;
+    return migrate(parsed);
   } catch {
     return seed();
   }
@@ -77,8 +93,8 @@ export function useGanttStore() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state, hydrated]);
 
-  const addProject = useCallback((name: string) => {
-    const p: Project = { id: uid(), name, createdAt: new Date().toISOString() };
+  const addProject = useCallback((name: string, scale: ProjectScale = "day") => {
+    const p: Project = { id: uid(), name, createdAt: new Date().toISOString(), scale };
     setState((s) => ({ ...s, projects: [...s.projects, p], activeProjectId: p.id }));
   }, []);
 
@@ -101,18 +117,30 @@ export function useGanttStore() {
 
   const addTask = useCallback((projectId: string, partial?: Partial<Task>) => {
     const today = new Date();
-    const t: Task = {
-      id: uid(),
-      projectId,
-      title: partial?.title ?? "Nueva tarea",
-      start: partial?.start ?? toISO(today),
-      end: partial?.end ?? toISO(addDays(today, 4)),
-      color: partial?.color ?? "blue",
-      subtasks: partial?.subtasks ?? [],
-      notes: partial?.notes,
-    };
-    setState((s) => ({ ...s, tasks: [...s.tasks, t] }));
-    return t.id;
+    // detect scale from project
+    let defaultStart = toISO(today);
+    let defaultEnd = toISO(addDays(today, 4));
+    setState((s) => {
+      const proj = s.projects.find((p) => p.id === projectId);
+      if (proj?.scale === "hour") {
+        const base = startOfHour(today);
+        defaultStart = toISOHour(base);
+        defaultEnd = toISOHour(addHours(base, 2));
+      }
+      const t: Task = {
+        id: partial?.id ?? uid(),
+        projectId,
+        title: partial?.title ?? "Nueva tarea",
+        start: partial?.start ?? defaultStart,
+        end: partial?.end ?? defaultEnd,
+        color: partial?.color ?? "blue",
+        subtasks: partial?.subtasks ?? [],
+        notes: partial?.notes,
+      };
+      lastCreatedId = t.id;
+      return { ...s, tasks: [...s.tasks, t] };
+    });
+    return lastCreatedId;
   }, []);
 
   const updateTask = useCallback((id: string, patch: Partial<Task>) => {
@@ -162,3 +190,5 @@ export function useGanttStore() {
     addSubtask, toggleSubtask, deleteSubtask,
   };
 }
+
+let lastCreatedId = "";

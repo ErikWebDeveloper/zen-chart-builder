@@ -79,6 +79,7 @@ function Index() {
           <>
             <GanttTimeline
               tasks={projectTasks}
+              scale={activeProject.scale}
               selectedId={selectedTaskId}
               onSelectTask={setSelectedTaskId}
               onAddTask={() => {
@@ -90,6 +91,7 @@ function Index() {
             {selectedTask && (
               <TaskDetailPanel
                 task={selectedTask}
+                scale={activeProject.scale}
                 onClose={() => setSelectedTaskId(null)}
                 onUpdate={updateTask}
                 onDelete={(id) => {
