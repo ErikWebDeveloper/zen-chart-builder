@@ -150,12 +150,14 @@ export function GanttTimeline({
   const nowOffset = isHour ? diffHours(rangeStart, now) : diffDays(rangeStart, now);
 
   function offsetOf(t: Task) {
-    return isHour ? diffHours(rangeStart, parseISO(t.start)) : diffDays(rangeStart, parseISO(t.start));
+    if (isHour) return diffMinutes(rangeStart, parseISO(t.start)) / 60;
+    return diffDays(rangeStart, parseISO(t.start));
   }
   function spanOf(t: Task) {
     const s = parseISO(t.start);
     const e = parseISO(t.end);
-    return isHour ? Math.max(1, diffHours(s, e)) : diffDays(s, e) + 1;
+    if (isHour) return Math.max(snapMin / 60, diffMinutes(s, e) / 60);
+    return diffDays(s, e) + 1;
   }
 
   const zoomStep = Math.max(4, Math.round((zoomCfg.max - zoomCfg.min) / 8));
