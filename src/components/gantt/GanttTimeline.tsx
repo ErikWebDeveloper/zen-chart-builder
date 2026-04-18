@@ -109,24 +109,30 @@ export function GanttTimeline({
     function onMove(e: MouseEvent) {
       if (!drag) return;
       const dx = e.clientX - drag.startX;
-      const deltaUnits = Math.round(dx / unitW);
-      if (deltaUnits === 0) return;
+      // pixels per minimum step (snap)
+      const pxPerStep = isHour ? (unitW * snapMin) / 60 : unitW;
+      const deltaSteps = Math.round(dx / pxPerStep);
+      if (deltaSteps === 0) return;
       const s = parseISO(drag.origStart);
       const e2 = parseISO(drag.origEnd);
       let newStart = drag.origStart;
       let newEnd = drag.origEnd;
-      const shift = (d: Date, n: number) => (isHour ? addHours(d, n) : addDays(d, n));
+      const shift = (d: Date, n: number) =>
+        isHour ? addMinutes(d, n * snapMin) : addDays(d, n);
       const fmt = (d: Date) => (isHour ? toISOHour(d) : toISO(d));
-      const cmp = (a: Date, b: Date) => (isHour ? diffHours(a, b) : diffDays(a, b));
+      // minimum gap: one snap step in hour mode, 0 days in day mode
+      const minGap = isHour ? snapMin : 0;
+      const gap = (a: Date, b: Date) =>
+        isHour ? diffMinutes(a, b) : diffDays(a, b);
       if (drag.mode === "move") {
-        newStart = fmt(shift(s, deltaUnits));
-        newEnd = fmt(shift(e2, deltaUnits));
+        newStart = fmt(shift(s, deltaSteps));
+        newEnd = fmt(shift(e2, deltaSteps));
       } else if (drag.mode === "resize-start") {
-        const ns = shift(s, deltaUnits);
-        if (cmp(ns, e2) >= (isHour ? 1 : 0)) newStart = fmt(ns);
+        const ns = shift(s, deltaSteps);
+        if (gap(ns, e2) >= minGap) newStart = fmt(ns);
       } else {
-        const ne = shift(e2, deltaUnits);
-        if (cmp(s, ne) >= (isHour ? 1 : 0)) newEnd = fmt(ne);
+        const ne = shift(e2, deltaSteps);
+        if (gap(s, ne) >= minGap) newEnd = fmt(ne);
       }
       onUpdateTask(drag.taskId, { start: newStart, end: newEnd });
     }
@@ -137,7 +143,7 @@ export function GanttTimeline({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [drag, onUpdateTask, unitW, isHour]);
+  }, [drag, onUpdateTask, unitW, isHour, snapMin]);
 
   const totalWidth = units.length * unitW;
   const now = new Date();
