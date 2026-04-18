@@ -464,7 +464,7 @@ export function GanttTimeline({
           <span className="h-2 w-2 rounded-full bg-primary" /> {isHour ? "Ahora" : "Hoy"}
         </span>
         <span>·</span>
-        <span>Arrastra para mover, los bordes para redimensionar · usa el zoom para ajustar la escala</span>
+        <span>Arrastra para mover, los bordes para redimensionar · zoom para escala{isHour ? ` · snap ${snapMin === 60 ? "1h" : `${snapMin}m`}` : ""}</span>
         <span className="ml-auto flex items-center gap-1">
           {TASK_COLORS.map((c) => (
             <span
