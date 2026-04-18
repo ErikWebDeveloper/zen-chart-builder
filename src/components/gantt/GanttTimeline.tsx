@@ -1,23 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Task } from "@/lib/gantt-types";
+import type { Task, ProjectScale } from "@/lib/gantt-types";
 import { TASK_COLORS } from "@/lib/gantt-types";
 import {
-  addDays, diffDays, formatHuman, isSameDay, isWeekend, monthLabel, parseISO, toISO,
+  addDays, addHours, diffDays, diffHours, formatHuman, isSameDay, isSameHour,
+  isWeekend, monthLabel, dayMonthLabel, parseISO, startOfHour, toISO, toISOHour,
 } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
-import { Plus, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 
 interface Props {
   tasks: Task[];
+  scale: ProjectScale;
   selectedId: string | null;
   onSelectTask: (id: string) => void;
   onAddTask: () => void;
   onUpdateTask: (id: string, patch: Partial<Task>) => void;
 }
 
-const DAY_W = 36;
 const ROW_H = 52;
 const LABEL_W = 240;
+
+const DAY_ZOOM = { min: 16, default: 36, max: 96 };
+const HOUR_ZOOM = { min: 18, default: 36, max: 90 };
 
 type DragMode = "move" | "resize-start" | "resize-end";
 
@@ -30,35 +34,50 @@ interface DragState {
 }
 
 export function GanttTimeline({
-  tasks, selectedId, onSelectTask, onAddTask, onUpdateTask,
+  tasks, scale, selectedId, onSelectTask, onAddTask, onUpdateTask,
 }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [drag, setDrag] = useState<DragState | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { rangeStart, days } = useMemo(() => {
-    const today = new Date();
-    let min = today, max = today;
+  const isHour = scale === "hour";
+  const zoomCfg = isHour ? HOUR_ZOOM : DAY_ZOOM;
+  const [unitW, setUnitW] = useState<number>(zoomCfg.default);
+
+  // reset zoom when scale changes
+  useEffect(() => { setUnitW(zoomCfg.default); }, [scale, zoomCfg.default]);
+
+  const { rangeStart, units } = useMemo(() => {
+    const now = new Date();
+    let min = now, max = now;
     for (const t of tasks) {
       const s = parseISO(t.start);
       const e = parseISO(t.end);
       if (s < min) min = s;
       if (e > max) max = e;
     }
+    if (isHour) {
+      const start = startOfHour(addHours(min, -6));
+      const end = addHours(max, 12);
+      const total = Math.max(48, diffHours(start, end) + 1);
+      const arr: Date[] = [];
+      for (let i = 0; i < total; i++) arr.push(addHours(start, i));
+      return { rangeStart: start, units: arr };
+    }
     const start = addDays(min, -7);
     const end = addDays(max, 14);
     const total = Math.max(45, diffDays(start, end) + 1);
     const arr: Date[] = [];
     for (let i = 0; i < total; i++) arr.push(addDays(start, i));
-    return { rangeStart: start, days: arr };
-  }, [tasks]);
+    return { rangeStart: start, units: arr };
+  }, [tasks, isHour]);
 
-  // group days by month for header
-  const monthGroups = useMemo(() => {
+  // group units for top header (months for day, days for hour)
+  const headerGroups = useMemo(() => {
     const groups: { label: string; span: number }[] = [];
     let current: { label: string; span: number } | null = null;
-    for (const d of days) {
-      const lab = monthLabel(d);
+    for (const d of units) {
+      const lab = isHour ? dayMonthLabel(d) : monthLabel(d);
       if (!current || current.label !== lab) {
         current = { label: lab, span: 1 };
         groups.push(current);
@@ -67,70 +86,117 @@ export function GanttTimeline({
       }
     }
     return groups;
-  }, [days]);
+  }, [units, isHour]);
 
-  // scroll to today on first mount
+  // scroll to now on mount/scale change
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const todayIdx = days.findIndex((d) => isSameDay(d, new Date()));
-    if (todayIdx >= 0) {
-      el.scrollLeft = Math.max(0, todayIdx * DAY_W - el.clientWidth / 2 + DAY_W / 2);
+    const now = new Date();
+    const idx = units.findIndex((d) => (isHour ? isSameHour(d, now) : isSameDay(d, now)));
+    if (idx >= 0) {
+      el.scrollLeft = Math.max(0, idx * unitW - el.clientWidth / 2 + unitW / 2);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scale]);
 
   // drag handlers
   useEffect(() => {
     if (!drag) return;
-
     function onMove(e: MouseEvent) {
       if (!drag) return;
       const dx = e.clientX - drag.startX;
-      const deltaDays = Math.round(dx / DAY_W);
-      if (deltaDays === 0) return;
+      const deltaUnits = Math.round(dx / unitW);
+      if (deltaUnits === 0) return;
       const s = parseISO(drag.origStart);
       const e2 = parseISO(drag.origEnd);
       let newStart = drag.origStart;
       let newEnd = drag.origEnd;
+      const shift = (d: Date, n: number) => (isHour ? addHours(d, n) : addDays(d, n));
+      const fmt = (d: Date) => (isHour ? toISOHour(d) : toISO(d));
+      const cmp = (a: Date, b: Date) => (isHour ? diffHours(a, b) : diffDays(a, b));
       if (drag.mode === "move") {
-        newStart = toISO(addDays(s, deltaDays));
-        newEnd = toISO(addDays(e2, deltaDays));
+        newStart = fmt(shift(s, deltaUnits));
+        newEnd = fmt(shift(e2, deltaUnits));
       } else if (drag.mode === "resize-start") {
-        const ns = addDays(s, deltaDays);
-        if (diffDays(ns, e2) >= 0) newStart = toISO(ns);
+        const ns = shift(s, deltaUnits);
+        if (cmp(ns, e2) >= (isHour ? 1 : 0)) newStart = fmt(ns);
       } else {
-        const ne = addDays(e2, deltaDays);
-        if (diffDays(s, ne) >= 0) newEnd = toISO(ne);
+        const ne = shift(e2, deltaUnits);
+        if (cmp(s, ne) >= (isHour ? 1 : 0)) newEnd = fmt(ne);
       }
       onUpdateTask(drag.taskId, { start: newStart, end: newEnd });
     }
     function onUp() { setDrag(null); }
-
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [drag, onUpdateTask]);
+  }, [drag, onUpdateTask, unitW, isHour]);
 
-  const totalWidth = days.length * DAY_W;
-  const today = new Date();
-  const todayOffset = diffDays(rangeStart, today);
+  const totalWidth = units.length * unitW;
+  const now = new Date();
+  const nowOffset = isHour ? diffHours(rangeStart, now) : diffDays(rangeStart, now);
+
+  function offsetOf(t: Task) {
+    return isHour ? diffHours(rangeStart, parseISO(t.start)) : diffDays(rangeStart, parseISO(t.start));
+  }
+  function spanOf(t: Task) {
+    const s = parseISO(t.start);
+    const e = parseISO(t.end);
+    return isHour ? Math.max(1, diffHours(s, e)) : diffDays(s, e) + 1;
+  }
+
+  const zoomStep = Math.max(4, Math.round((zoomCfg.max - zoomCfg.min) / 8));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {/* toolbar */}
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <div className="text-sm text-muted-foreground">
-          {tasks.length} {tasks.length === 1 ? "tarea" : "tareas"}
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-muted-foreground">
+            {tasks.length} {tasks.length === 1 ? "tarea" : "tareas"}
+          </div>
+          <span className="text-xs text-muted-foreground">·</span>
+          <span className="rounded-md border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            {isHour ? "Por horas" : "Por días"}
+          </span>
         </div>
-        <button
-          onClick={onAddTask}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-soft transition hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" /> Nueva tarea
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-0.5">
+            <button
+              onClick={() => setUnitW((w) => Math.max(zoomCfg.min, w - zoomStep))}
+              className="grid h-6 w-6 place-items-center rounded text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              aria-label="Reducir zoom"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <input
+              type="range"
+              min={zoomCfg.min}
+              max={zoomCfg.max}
+              value={unitW}
+              onChange={(e) => setUnitW(Number(e.target.value))}
+              className="h-1 w-24 cursor-pointer accent-primary"
+              aria-label="Zoom"
+            />
+            <button
+              onClick={() => setUnitW((w) => Math.min(zoomCfg.max, w + zoomStep))}
+              className="grid h-6 w-6 place-items-center rounded text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              aria-label="Aumentar zoom"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <button
+            onClick={onAddTask}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-soft transition hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" /> Nueva tarea
+          </button>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -172,7 +238,7 @@ export function GanttTimeline({
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-foreground">{t.title}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        {total > 0 ? `${done}/${total} subtareas` : formatHuman(parseISO(t.start))}
+                        {total > 0 ? `${done}/${total} subtareas` : formatHuman(parseISO(t.start), isHour)}
                       </div>
                     </div>
                   </div>
@@ -211,10 +277,10 @@ export function GanttTimeline({
             {/* header */}
             <div className="sticky top-0 z-20 bg-background/95 backdrop-blur">
               <div className="flex h-7 border-b border-border">
-                {monthGroups.map((g, i) => (
+                {headerGroups.map((g, i) => (
                   <div
                     key={i}
-                    style={{ width: g.span * DAY_W }}
+                    style={{ width: g.span * unitW }}
                     className="flex items-center px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
                   >
                     {g.label}
@@ -222,20 +288,24 @@ export function GanttTimeline({
                 ))}
               </div>
               <div className="flex h-7 border-b border-border">
-                {days.map((d, i) => {
-                  const isToday = isSameDay(d, today);
+                {units.map((d, i) => {
+                  const isNow = isHour ? isSameHour(d, now) : isSameDay(d, now);
+                  const label = isHour
+                    ? String(d.getHours()).padStart(2, "0")
+                    : String(d.getDate());
                   return (
                     <div
                       key={i}
-                      style={{ width: DAY_W }}
+                      style={{ width: unitW }}
                       className={cn(
                         "flex flex-col items-center justify-center border-l border-border/40 text-[10px]",
-                        isWeekend(d) && "bg-muted/30",
-                        isToday && "bg-primary/10 font-semibold text-primary",
+                        !isHour && isWeekend(d) && "bg-muted/30",
+                        isHour && (d.getHours() === 0) && "bg-muted/30",
+                        isNow && "bg-primary/10 font-semibold text-primary",
                       )}
                     >
-                      <span className={cn("tabular-nums", !isToday && "text-muted-foreground")}>
-                        {d.getDate()}
+                      <span className={cn("tabular-nums", !isNow && "text-muted-foreground")}>
+                        {label}
                       </span>
                     </div>
                   );
@@ -245,43 +315,40 @@ export function GanttTimeline({
 
             {/* grid background */}
             <div className="relative">
-              {/* vertical day lines + weekend bands */}
               <div className="pointer-events-none absolute inset-0 flex">
-                {days.map((d, i) => (
+                {units.map((d, i) => (
                   <div
                     key={i}
-                    style={{ width: DAY_W }}
+                    style={{ width: unitW }}
                     className={cn(
                       "border-l border-border/30",
-                      isWeekend(d) && "bg-muted/20",
+                      !isHour && isWeekend(d) && "bg-muted/20",
+                      isHour && d.getHours() === 0 && "border-l-border/60",
                     )}
                   />
                 ))}
               </div>
-              {/* today line */}
-              {todayOffset >= 0 && todayOffset < days.length && (
+              {/* now line */}
+              {nowOffset >= 0 && nowOffset < units.length && (
                 <div
                   className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-primary/60"
-                  style={{ left: todayOffset * DAY_W + DAY_W / 2 }}
+                  style={{ left: nowOffset * unitW + unitW / 2 }}
                 />
               )}
 
               {/* task rows */}
               {tasks.map((t) => {
                 const isOpen = expanded[t.id];
-                const offset = diffDays(rangeStart, parseISO(t.start));
-                const span = diffDays(parseISO(t.start), parseISO(t.end)) + 1;
-                const left = offset * DAY_W;
-                const width = Math.max(DAY_W, span * DAY_W);
+                const offset = offsetOf(t);
+                const span = spanOf(t);
+                const left = offset * unitW;
+                const width = Math.max(unitW, span * unitW);
                 const done = t.subtasks.filter((s) => s.done).length;
                 const progress = t.subtasks.length ? done / t.subtasks.length : 0;
                 const colorVar = `var(--task-${t.color})`;
                 return (
                   <div key={t.id}>
-                    <div
-                      style={{ height: ROW_H }}
-                      className="relative border-b border-border/50"
-                    >
+                    <div style={{ height: ROW_H }} className="relative border-b border-border/50">
                       <div
                         onMouseDown={(e) => {
                           e.preventDefault();
@@ -303,7 +370,6 @@ export function GanttTimeline({
                           "--tw-ring-color": colorVar,
                         }}
                       >
-                        {/* progress fill */}
                         {progress > 0 && (
                           <div
                             className="absolute inset-y-0 left-0"
@@ -313,7 +379,6 @@ export function GanttTimeline({
                             }}
                           />
                         )}
-                        {/* resize start */}
                         <div
                           onMouseDown={(e) => {
                             e.stopPropagation();
@@ -332,7 +397,6 @@ export function GanttTimeline({
                         >
                           {t.title}
                         </span>
-                        {/* resize end */}
                         <div
                           onMouseDown={(e) => {
                             e.stopPropagation();
@@ -366,10 +430,10 @@ export function GanttTimeline({
       {/* legend */}
       <div className="flex items-center gap-3 border-t border-border px-5 py-2 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-primary" /> Hoy
+          <span className="h-2 w-2 rounded-full bg-primary" /> {isHour ? "Ahora" : "Hoy"}
         </span>
         <span>·</span>
-        <span>Arrastra una barra para moverla, los bordes para redimensionar</span>
+        <span>Arrastra para mover, los bordes para redimensionar · usa el zoom para ajustar la escala</span>
         <span className="ml-auto flex items-center gap-1">
           {TASK_COLORS.map((c) => (
             <span

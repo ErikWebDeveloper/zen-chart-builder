@@ -11,6 +11,8 @@ export const TASK_COLORS = [
 
 export type TaskColor = (typeof TASK_COLORS)[number]["id"];
 
+export type ProjectScale = "day" | "hour";
+
 export interface Subtask {
   id: string;
   title: string;
@@ -21,8 +23,10 @@ export interface Task {
   id: string;
   projectId: string;
   title: string;
-  start: string; // ISO date YYYY-MM-DD
-  end: string;   // ISO date YYYY-MM-DD (inclusive)
+  /** ISO. For day scale: YYYY-MM-DD. For hour scale: YYYY-MM-DDTHH:mm */
+  start: string;
+  /** ISO end (inclusive for days, exclusive end-instant for hours). */
+  end: string;
   color: TaskColor;
   subtasks: Subtask[];
   notes?: string;
@@ -32,6 +36,7 @@ export interface Project {
   id: string;
   name: string;
   createdAt: string;
+  scale: ProjectScale;
 }
 
 export interface GanttState {
