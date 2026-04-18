@@ -1,5 +1,16 @@
 export const DAY_MS = 86_400_000;
 export const HOUR_MS = 3_600_000;
+export const MIN_MS = 60_000;
+
+export function addMinutes(d: Date, n: number): Date {
+  const x = new Date(d);
+  x.setTime(x.getTime() + n * MIN_MS);
+  return x;
+}
+
+export function diffMinutes(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / MIN_MS);
+}
 
 export function toISO(d: Date): string {
   const y = d.getFullYear();
