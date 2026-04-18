@@ -44,6 +44,8 @@ export function GanttTimeline({
   const isHour = scale === "hour";
   const zoomCfg = isHour ? HOUR_ZOOM : DAY_ZOOM;
   const [unitW, setUnitW] = useState<number>(zoomCfg.default);
+  // snap step in minutes (only used in hour mode): 60, 30 or 15
+  const [snapMin, setSnapMin] = useState<15 | 30 | 60>(60);
 
   // reset zoom when scale changes
   useEffect(() => { setUnitW(zoomCfg.default); }, [scale, zoomCfg.default]);
