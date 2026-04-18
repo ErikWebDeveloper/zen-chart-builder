@@ -6,6 +6,7 @@ import { X, Trash2, Plus, Calendar } from "lucide-react";
 
 interface Props {
   task: Task | null;
+  scale: "day" | "hour";
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<Task>) => void;
   onDelete: (id: string) => void;
@@ -15,8 +16,10 @@ interface Props {
 }
 
 export function TaskDetailPanel({
-  task, onClose, onUpdate, onDelete, onAddSubtask, onToggleSubtask, onDeleteSubtask,
+  task, scale, onClose, onUpdate, onDelete, onAddSubtask, onToggleSubtask, onDeleteSubtask,
 }: Props) {
+  const isHour = scale === "hour";
+  const inputType = isHour ? "datetime-local" : "date";
   const [newSub, setNewSub] = useState("");
 
   if (!task) return null;
@@ -86,7 +89,7 @@ export function TaskDetailPanel({
               <Calendar className="h-3 w-3" /> Inicio
             </label>
             <input
-              type="date"
+              type={inputType}
               value={task.start}
               onChange={(e) => onUpdate(task.id, { start: e.target.value })}
               className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
@@ -97,7 +100,7 @@ export function TaskDetailPanel({
               <Calendar className="h-3 w-3" /> Fin
             </label>
             <input
-              type="date"
+              type={inputType}
               value={task.end}
               min={task.start}
               onChange={(e) => onUpdate(task.id, { end: e.target.value })}
