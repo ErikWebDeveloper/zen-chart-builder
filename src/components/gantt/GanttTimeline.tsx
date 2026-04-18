@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Task, ProjectScale } from "@/lib/gantt-types";
 import { TASK_COLORS } from "@/lib/gantt-types";
 import {
-  addDays, addHours, diffDays, diffHours, formatHuman, isSameDay, isSameHour,
+  addDays, addHours, addMinutes, diffDays, diffHours, diffMinutes,
+  formatHuman, isSameDay, isSameHour,
   isWeekend, monthLabel, dayMonthLabel, parseISO, startOfHour, toISO, toISOHour,
 } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,8 @@ export function GanttTimeline({
   const isHour = scale === "hour";
   const zoomCfg = isHour ? HOUR_ZOOM : DAY_ZOOM;
   const [unitW, setUnitW] = useState<number>(zoomCfg.default);
+  // snap step in minutes (only used in hour mode): 60, 30 or 15
+  const [snapMin, setSnapMin] = useState<15 | 30 | 60>(60);
 
   // reset zoom when scale changes
   useEffect(() => { setUnitW(zoomCfg.default); }, [scale, zoomCfg.default]);
@@ -106,24 +109,30 @@ export function GanttTimeline({
     function onMove(e: MouseEvent) {
       if (!drag) return;
       const dx = e.clientX - drag.startX;
-      const deltaUnits = Math.round(dx / unitW);
-      if (deltaUnits === 0) return;
+      // pixels per minimum step (snap)
+      const pxPerStep = isHour ? (unitW * snapMin) / 60 : unitW;
+      const deltaSteps = Math.round(dx / pxPerStep);
+      if (deltaSteps === 0) return;
       const s = parseISO(drag.origStart);
       const e2 = parseISO(drag.origEnd);
       let newStart = drag.origStart;
       let newEnd = drag.origEnd;
-      const shift = (d: Date, n: number) => (isHour ? addHours(d, n) : addDays(d, n));
+      const shift = (d: Date, n: number) =>
+        isHour ? addMinutes(d, n * snapMin) : addDays(d, n);
       const fmt = (d: Date) => (isHour ? toISOHour(d) : toISO(d));
-      const cmp = (a: Date, b: Date) => (isHour ? diffHours(a, b) : diffDays(a, b));
+      // minimum gap: one snap step in hour mode, 0 days in day mode
+      const minGap = isHour ? snapMin : 0;
+      const gap = (a: Date, b: Date) =>
+        isHour ? diffMinutes(a, b) : diffDays(a, b);
       if (drag.mode === "move") {
-        newStart = fmt(shift(s, deltaUnits));
-        newEnd = fmt(shift(e2, deltaUnits));
+        newStart = fmt(shift(s, deltaSteps));
+        newEnd = fmt(shift(e2, deltaSteps));
       } else if (drag.mode === "resize-start") {
-        const ns = shift(s, deltaUnits);
-        if (cmp(ns, e2) >= (isHour ? 1 : 0)) newStart = fmt(ns);
+        const ns = shift(s, deltaSteps);
+        if (gap(ns, e2) >= minGap) newStart = fmt(ns);
       } else {
-        const ne = shift(e2, deltaUnits);
-        if (cmp(s, ne) >= (isHour ? 1 : 0)) newEnd = fmt(ne);
+        const ne = shift(e2, deltaSteps);
+        if (gap(s, ne) >= minGap) newEnd = fmt(ne);
       }
       onUpdateTask(drag.taskId, { start: newStart, end: newEnd });
     }
@@ -134,19 +143,21 @@ export function GanttTimeline({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [drag, onUpdateTask, unitW, isHour]);
+  }, [drag, onUpdateTask, unitW, isHour, snapMin]);
 
   const totalWidth = units.length * unitW;
   const now = new Date();
   const nowOffset = isHour ? diffHours(rangeStart, now) : diffDays(rangeStart, now);
 
   function offsetOf(t: Task) {
-    return isHour ? diffHours(rangeStart, parseISO(t.start)) : diffDays(rangeStart, parseISO(t.start));
+    if (isHour) return diffMinutes(rangeStart, parseISO(t.start)) / 60;
+    return diffDays(rangeStart, parseISO(t.start));
   }
   function spanOf(t: Task) {
     const s = parseISO(t.start);
     const e = parseISO(t.end);
-    return isHour ? Math.max(1, diffHours(s, e)) : diffDays(s, e) + 1;
+    if (isHour) return Math.max(snapMin / 60, diffMinutes(s, e) / 60);
+    return diffDays(s, e) + 1;
   }
 
   const zoomStep = Math.max(4, Math.round((zoomCfg.max - zoomCfg.min) / 8));
@@ -165,6 +176,26 @@ export function GanttTimeline({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {isHour && (
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-0.5 text-[11px]">
+              <span className="px-1.5 text-muted-foreground">Snap</span>
+              {([60, 30, 15] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setSnapMin(m)}
+                  className={cn(
+                    "rounded px-2 py-0.5 font-medium transition",
+                    snapMin === m
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                  aria-label={`Snap ${m} minutos`}
+                >
+                  {m === 60 ? "1h" : `${m}m`}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-0.5">
             <button
               onClick={() => setUnitW((w) => Math.max(zoomCfg.min, w - zoomStep))}
@@ -433,7 +464,7 @@ export function GanttTimeline({
           <span className="h-2 w-2 rounded-full bg-primary" /> {isHour ? "Ahora" : "Hoy"}
         </span>
         <span>·</span>
-        <span>Arrastra para mover, los bordes para redimensionar · usa el zoom para ajustar la escala</span>
+        <span>Arrastra para mover, los bordes para redimensionar · zoom para escala{isHour ? ` · snap ${snapMin === 60 ? "1h" : `${snapMin}m`}` : ""}</span>
         <span className="ml-auto flex items-center gap-1">
           {TASK_COLORS.map((c) => (
             <span
