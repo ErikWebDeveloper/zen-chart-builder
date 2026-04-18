@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Task, ProjectScale } from "@/lib/gantt-types";
 import { TASK_COLORS } from "@/lib/gantt-types";
 import {
-  addDays, addHours, diffDays, diffHours, formatHuman, isSameDay, isSameHour,
+  addDays, addHours, addMinutes, diffDays, diffHours, diffMinutes,
+  formatHuman, isSameDay, isSameHour,
   isWeekend, monthLabel, dayMonthLabel, parseISO, startOfHour, toISO, toISOHour,
 } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
