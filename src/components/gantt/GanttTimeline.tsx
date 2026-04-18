@@ -176,6 +176,26 @@ export function GanttTimeline({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {isHour && (
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-0.5 text-[11px]">
+              <span className="px-1.5 text-muted-foreground">Snap</span>
+              {([60, 30, 15] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setSnapMin(m)}
+                  className={cn(
+                    "rounded px-2 py-0.5 font-medium transition",
+                    snapMin === m
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                  aria-label={`Snap ${m} minutos`}
+                >
+                  {m === 60 ? "1h" : `${m}m`}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-0.5">
             <button
               onClick={() => setUnitW((w) => Math.max(zoomCfg.min, w - zoomStep))}
