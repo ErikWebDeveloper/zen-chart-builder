@@ -29,10 +29,19 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const {
-    state, hydrated,
-    addProject, renameProject, deleteProject, setActiveProject,
-    addTask, updateTask, deleteTask,
-    addSubtask, toggleSubtask, deleteSubtask,
+    state,
+    hydrated,
+    addProject,
+    renameProject,
+    deleteProject,
+    setActiveProject,
+    addTask,
+    updateTask,
+    deleteTask,
+    addSubtask,
+    toggleSubtask,
+    deleteSubtask,
+    importState,
   } = useGanttStore();
   const { theme, toggle } = useTheme();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -53,7 +62,37 @@ function Index() {
   }, [state.tasks]);
 
   const selectedTask =
-    state.tasks.find((t) => t.id === selectedTaskId && t.projectId === state.activeProjectId) ?? null;
+    state.tasks.find((t) => t.id === selectedTaskId && t.projectId === state.activeProjectId) ??
+    null;
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `plano-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (file: File) => {
+    if (
+      !confirm(
+        "Se reemplazarán todos los proyectos y tareas actuales por los del archivo. ¿Continuar?",
+      )
+    )
+      return;
+    try {
+      const raw = await file.text();
+      importState(raw);
+      setSelectedTaskId(null);
+    } catch (error) {
+      alert(
+        "No se pudo importar el archivo: " +
+          (error instanceof Error ? error.message : "JSON inválido"),
+      );
+    }
+  };
 
   if (!hydrated) {
     return <div className="grid min-h-screen place-items-center bg-background" />;
@@ -61,7 +100,13 @@ function Index() {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <TopBar projectName={activeProject?.name ?? null} theme={theme} onToggleTheme={toggle} />
+      <TopBar
+        projectName={activeProject?.name ?? null}
+        theme={theme}
+        onToggleTheme={toggle}
+        onExport={handleExport}
+        onImport={handleImport}
+      />
       <div className="flex min-h-0 flex-1">
         <ProjectSidebar
           projects={state.projects}
